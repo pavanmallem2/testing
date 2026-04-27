@@ -14,11 +14,31 @@ $ldapBase = "DC=IIPL,DC=COM"
 "User: $env:USERDOMAIN\$env:USERNAME" | Out-File $outputFile -Append
 "=" * 70 | Out-File $outputFile -Append
 
+# LDAP Connectivity Test
+Write-Host "[*] Testing LDAP connectivity..." -ForegroundColor Yellow
+try {
+    $testSearcher = New-Object DirectoryServices.DirectorySearcher([ADSI]"")
+    $testSearcher.Filter = "(objectClass=domain)"
+    $testResult = $testSearcher.FindOne()
+    if ($testResult) {
+        Write-Host "[+] LDAP OK: $($testResult.Properties['distinguishedname'][0])" -ForegroundColor Green
+        "LDAP Test: OK - $($testResult.Properties['distinguishedname'][0])" | Out-File $outputFile -Append
+    }
+} catch {
+    Write-Host "[-] LDAP FAILED: $($_.Exception.Message)" -ForegroundColor Red
+    "LDAP Test: FAILED - $($_.Exception.Message)" | Out-File $outputFile -Append
+    Write-Host "[-] Script will continue but LDAP queries will fail" -ForegroundColor Red
+}
+
 function Run-LDAPQuery {
-    param([string]$Filter, [string[]]$Properties, [string]$SearchBase = $ldapBase)
+    param([string]$Filter, [string[]]$Properties, [string]$SearchBase = "")
     try {
         $s = New-Object DirectoryServices.DirectorySearcher
-        $s.SearchRoot = [ADSI]"LDAP://$SearchBase"
+        if ($SearchBase -ne "" -and $SearchBase -ne $ldapBase) {
+            $s.SearchRoot = [ADSI]"LDAP://$SearchBase"
+        } else {
+            $s.SearchRoot = [ADSI]""
+        }
         $s.Filter = $Filter
         $s.PageSize = 1000
         if ($Properties) { $s.PropertiesToLoad.AddRange($Properties) }
@@ -396,8 +416,10 @@ $kw = @(("pas"+"sword"),("pas"+"wd"),("cre"+"dential"),("cpas"+"sword"),("net "+
 
 foreach ($f in $sysvolFiles) {
     try {
+        # Skip GPT.INI and the script itself
+        if ($f.Name -eq "GPT.INI" -or $f.Name -eq "ad_enum_v2.ps1") { continue }
         $content = Get-Content $f.FullName -Raw -ErrorAction SilentlyContinue
-        if ($content) {
+        if ($content -and $content.Length -gt 10) {
             foreach ($k in $kw) {
                 if ($content -match $k) {
                     "`nMATCH [$k] in: $($f.FullName)" | Out-File $outputFile -Append
